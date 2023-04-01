@@ -1,7 +1,27 @@
+import datetime
+
 from binance.spot import Spot
 import pandas as pd
 import json
 import os
+from binance.client import Client
+import csv
+from pathlib import Path
+
+ENUM_DEFINITIONS = {
+    'type': ['LIMIT', 'MARKET', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT_LIMIT', 'LIMIT_MAKER'],
+    'timeinForce': ['GTC', 'IOC', 'FOK']
+}
+
+ORDER_SPECIFICS = {
+    'MARKET': [('quantity', 'quoteOrderQty')],
+    'LIMIT': ['timeInForce', 'quantity', 'price'],
+    'STOP_LOSS': ['stopPrice', 'quantity', 'price'],
+    'STOP_LOSS_LIMIT': ['timeInForce', 'quantity', 'price', ('stopPrice', 'trailingDelta')],
+    'TAKE_PROFIT': ['quantity', ('stopPrice', 'trailingDelta')],
+    'TAKE_PROFIT_LIMIT': ['timeInForce', 'quantity', 'price', ('stopPrice', 'trailingDelta')],
+    'LIMIT_MAKER': ['quantity', 'price']
+}
 
 def get_project_settings(importFilepath):
     """import binance keys from settings file"""
@@ -57,7 +77,7 @@ def query_spot_asset_list(quote_ticker):
     return quote_ticker_dataframe
 
 
-def get_historical_data(client, ticker):
+def get_historical_data(client, ticker, start_date, end_date):
     """Get historic data for given period length and ticker"""
 
     print(f"Getting data for {ticker}")
@@ -107,6 +127,37 @@ def get_trade_pnl(price, signal):
 
 def get_trade_pnl_per_ticker(df, buy, sell, considered_price):
     """calculates return per trade per ticker"""
+
     print(f'pnl_{buy}_{sell}')
     df[f'pnl_{buy}_{sell}'] = list(get_trade_pnl(df[considered_price], df[f'trade_{buy}_{sell}']))
     return df
+
+def is_valid_order(symbol, side, type, timestamp, **kwargs):
+    """verifies that passed parameters are valid for the desired order type"""
+
+    if symbol is None or side is None or type is None or timestamp is None:
+        raise ValueError("Invalid order, all orders must have symbol, side, type and timestamp.")
+    if type not in ORDER_SPECIFICS.keys():
+        raise ValueError("Invalid order type.")
+
+    for mandatory_field in ORDER_SPECIFICS[type]:
+        if isinstance(mandatory_field, tuple):
+            field_1 = mandatory_field [0]
+            field_2 = mandatory_field[1]
+            if field_1 not in kwargs and field_2 not in kwargs:
+                return False
+        else:
+            if mandatory_field not in kwargs:
+                return False
+    return True
+
+def write_to_csv(data, csv_path, csv_name):
+    """Writes trade outputs into specified CSV or creates new if not existent"""
+    path = Path(csv_path)
+    path.mkdir(parents=True, exist_ok= True)
+    with open(f'{csv_path}/{csv_name}.csv', 'a', newline='') as my_file:
+        csv_writer = csv.DictWriter(my_file, data)
+        csv_writer.writeheader()
+        csv_writer.writerow(data)
+        print(f"Successfully written data into file {csv_path}.")
+
